@@ -50,6 +50,13 @@
                                 </li>
                             @endif
                         @endauth
+                        @auth
+                            @if(auth()->user()->role === 'candidate')
+                                <li class="nav-item">
+                                    <a class="nav-link" href="{{ route('profile.view') }}">view Profile</a>
+                                </li>
+                            @endif
+                        @endauth
                     </ul>
 
                     <!-- Right Side Of Navbar -->

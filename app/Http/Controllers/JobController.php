@@ -18,7 +18,33 @@ class JobController extends Controller
  
     public function index()
     {
-         }
+        $user = Auth::user();
+    
+        if ($user->role === 'admin') {
+            $jobs = JobList::with('applications') 
+                           ->latest() 
+                           ->paginate(3);
+        } 
+       
+        elseif ($user->role === 'employer') {
+            $jobs = JobList::with('applications') 
+                           ->where('user_id', $user->id)
+                           ->where('is_approved', true) 
+                           ->latest()
+                           ->paginate(3); 
+        } 
+       
+        elseif ($user->role === 'candidate') {
+            $jobs = JobList::where('is_approved', true) 
+                           ->whereHas('user', function($query) {
+                               $query->where('role', 'employer'); 
+                           })
+                           ->latest() 
+                           ->paginate(3);
+        }
+    
+        return view('jobs.index', compact('jobs'));
+    }
 
    
     public function create()
@@ -117,6 +143,132 @@ class JobController extends Controller
     }
 
   
+    public function destroy($id)
+    {
+        $job = JobList::findOrFail($id);
+
+        
+        $this->authorize('delete', $job);
+
+        $job->delete();
+
+        return redirect()->route('jobs.index')->with('success', 'Job deleted successfully');
+    }
+
+    
+    public function approve($id)
+    {
+        $job = JobList::findOrFail($id);
+        $job->is_approved = true;
+        $job->save();
+
+        return redirect()->route('jobs.index')->with('success', 'Job approved successfully.');
+    }
+
+    public function reject($id)
+    {
+        $job = JobList::findOrFail($id);
+        $job->is_approved = false;
+        $job->save();
+
+        return redirect()->route('jobs.index')->with('success', 'Job rejected successfully.');
+    }
+
+    
+
+    public function search(Request $request)
+    {
+        
+        $title = $request->input('title');
+        $location = $request->input('location');
+        $category = $request->input('category');
+        $salaryRange = $request->input('salary_range');
+        $datePosted = $request->input('date_posted');
+
+        
+        $query = JobList::query();
+
+        if ($title) {
+            $query->where('title', 'like', '%' . $title . '%');
+        }
+
+        if ($location) {
+            $query->where('location', $location);
+        }
+
+        if ($category) {
+            $query->where('category', $category);
+        }
+
+        if ($salaryRange) {
+            $query->where('salary_range', $salaryRange);
+        }
+
+        if ($datePosted) {
+            $query->whereDate('created_at', $datePosted);
+        }
+
+        
+        $jobs = $query->paginate(10);
+        return view('jobs.search-results', compact('jobs'));
+    }
+
+
+
    
+    public function apply(Request $request, $jobId)
+    {
+        
+        
+        $user = Auth::user();
+        if (!$user) {
+            return redirect()->route('jobs.index')->with('error', 'You must be logged in to apply.');
+        }
+
+
+        // dd($user->role );
+        if ($user->role != 'candidate') {
+            return redirect()->route('jobs.show', $jobId)
+                            ->with('error', 'You must be a candidate to apply for this job.');
+        }
+
+       
+
+        $request->validate([
+            'name' => 'required|string|max:255',
+            'phone' => 'required|string|max:20',
+            'email' => 'required|email|max:255',
+            'resume' => 'required|mimes:pdf,doc,docx|max:2048',
+        ]);
+
+       
+        $job = JobList::find($jobId);
+
+        // dd($job);
+        if (!$job) {
+            return redirect()->route('jobs.index')->with('error', 'Job not found.');
+        }
+
+       
+        // $resumePath = $request->file('resume')->store('resumes');
+        $resumePath  = '';
+        if ($request->hasFile('resume')) {
+            
+            $path = $request->file('resume')->store('resumes', 'public');
+            $resumePath = $path;
+        }
+       
+        JobApplication::create([
+            'user_id' => $user->id,
+            'job_id' => $job->id,
+            'name' => $request->input('name'),
+            'phone' => $request->input('phone'),
+            'email' => $request->input('email'),
+            'resume' => $resumePath,
+            'status' => 'pending', 
+        ]);
+
+        return redirect()->route('jobs.index')->with('success', 'Application submitted successfully.');
+    }
 
 }
